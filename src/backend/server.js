@@ -295,14 +295,15 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Puerto dinámico para producción
+// Puerto dinámico para producción (CRÍTICO para Render)
 const PORT = process.env.PORT || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
 
-app.listen(PORT, HOST, () => {
-  console.log(`🚀 Servidor corriendo en ${HOST}:${PORT}`);
+// En producción, Render requiere que escuches en 0.0.0.0
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📊 Base de datos: ${process.env.MONGODB_URI ? 'MongoDB Atlas conectada' : 'Sin configurar'}`);
+  console.log(`🔗 Escuchando en todas las interfaces (0.0.0.0:${PORT})`);
 });
 
 // Manejo de cierre graceful
