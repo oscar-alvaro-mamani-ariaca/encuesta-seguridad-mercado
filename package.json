@@ -1,0 +1,20 @@
+{
+  "name": "encuesta-seguridad",
+  "version": "1.0.0",
+  "description": "Sistema de encuestas de seguridad para mercado",
+  "main": "src/backend/server.js",
+  "scripts": {
+    "start": "node src/backend/server.js",
+    "build": "npm install",
+    "dev": "node src/backend/server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "mongoose": "^7.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.0.0"
+  },
+  "engines": {
+    "node": "18.x"
+  }
+}
