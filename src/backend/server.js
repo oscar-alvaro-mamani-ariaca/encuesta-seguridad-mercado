@@ -401,30 +401,66 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Puerto dinámico para producción (CRÍTICO para Render)
+// ⚠️ CRÍTICO: Configuración de puerto para Render
 const PORT = process.env.PORT || 3001;
 
-// En producción, Render requiere que escuches en 0.0.0.0
-app.listen(PORT, '0.0.0.0', () => {
+// ⚠️ CRÍTICO: Render requiere que escuches en 0.0.0.0 y usar callback que retorne el servidor
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`🌍 Entorno: ${process.env.NODE_ENV || 'development'}`);
   console.log(`📊 Base de datos: ${process.env.MONGODB_URI ? 'MongoDB Atlas conectada' : 'Sin configurar'}`);
   console.log(`🔗 Escuchando en todas las interfaces (0.0.0.0:${PORT})`);
+  console.log(`🌐 Servidor listo para recibir conexiones en puerto ${PORT}`);
 });
 
-// Manejo de cierre graceful
-process.on('SIGTERM', () => {
+// ⚠️ CRÍTICO: Manejo correcto de cierre graceful para Mongoose 7.x+
+process.on('SIGTERM', async () => {
   console.log('👋 SIGTERM recibido. Cerrando servidor gracefully...');
-  mongoose.connection.close(() => {
+  
+  try {
+    // Cerrar el servidor HTTP primero
+    server.close(() => {
+      console.log('🔌 Servidor HTTP cerrado.');
+    });
+    
+    // Cerrar conexión MongoDB sin callback (Mongoose 7.x+)
+    await mongoose.connection.close();
     console.log('📴 Conexión a MongoDB cerrada.');
+    
     process.exit(0);
-  });
+  } catch (error) {
+    console.error('❌ Error durante el cierre:', error);
+    process.exit(1);
+  }
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('👋 SIGINT recibido. Cerrando servidor gracefully...');
-  mongoose.connection.close(() => {
+  
+  try {
+    // Cerrar el servidor HTTP primero
+    server.close(() => {
+      console.log('🔌 Servidor HTTP cerrado.');
+    });
+    
+    // Cerrar conexión MongoDB sin callback (Mongoose 7.x+)
+    await mongoose.connection.close();
     console.log('📴 Conexión a MongoDB cerrada.');
+    
     process.exit(0);
-  });
+  } catch (error) {
+    console.error('❌ Error durante el cierre:', error);
+    process.exit(1);
+  }
+});
+
+// ⚠️ Manejo de errores no capturados
+process.on('unhandledRejection', (err) => {
+  console.error('💥 Unhandled Rejection:', err);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('💥 Uncaught Exception:', err);
+  process.exit(1);
 });
