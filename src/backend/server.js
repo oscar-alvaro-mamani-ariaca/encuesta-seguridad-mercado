@@ -14,19 +14,50 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Servir archivos estáticos del frontend (para producción)
+// Servir archivos estáticos del frontend (solo si existe la carpeta build)
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(path.join(__dirname, '../../build')));
-  app.use(express.static(path.join(__dirname, '../../public')));
+  const buildPath = path.join(__dirname, '../../build');
+  const publicPath = path.join(__dirname, '../../public');
+  
+  // Verificar si existe la carpeta build
+  try {
+    if (require('fs').existsSync(buildPath)) {
+      console.log('📁 Sirviendo archivos desde build/');
+      app.use(express.static(buildPath));
+    } else if (require('fs').existsSync(publicPath)) {
+      console.log('📁 Sirviendo archivos desde public/');
+      app.use(express.static(publicPath));
+    } else {
+      console.log('⚠️ No se encontraron carpetas build/ ni public/, solo API mode');
+    }
+  } catch (err) {
+    console.log('⚠️ Error al verificar carpetas estáticas:', err.message);
+  }
 }
+
+// Verificar que MONGODB_URI esté configurada
+if (!process.env.MONGODB_URI) {
+  console.error('❌ ERROR CRÍTICO: MONGODB_URI no está configurada');
+  console.log('Variables de entorno disponibles:', Object.keys(process.env));
+  process.exit(1);
+}
+
+console.log('🔍 MONGODB_URI detectada:', process.env.MONGODB_URI ? 'SÍ (oculta por seguridad)' : 'NO');
 
 // Conexión a MongoDB Atlas
 mongoose.connect(process.env.MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('✅ Conectado a MongoDB Atlas'))
-.catch(err => console.error('❌ Error de conexión:', err));
+.then(() => {
+  console.log('✅ Conectado a MongoDB Atlas exitosamente');
+  console.log('📊 Base de datos:', mongoose.connection.db.databaseName);
+})
+.catch(err => {
+  console.error('❌ Error de conexión a MongoDB:', err.message);
+  console.error('🔍 MONGODB_URI value:', process.env.MONGODB_URI);
+  process.exit(1);
+});
 
 // Definir el esquema de la encuesta
 const surveySchema = new mongoose.Schema({
@@ -75,40 +106,68 @@ if (process.env.NODE_ENV === 'production') {
   });
 }
 
-// Ruta de salud del servidor
+// Ruta de salud del servidor (con más detalles)
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
+  const healthCheck = {
     message: '🟢 Servidor funcionando correctamente',
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
-  });
+    environment: process.env.NODE_ENV || 'development',
+    mongodb: mongoose.connection.readyState === 1 ? 'Conectado' : 'Desconectado',
+    mongoState: mongoose.connection.readyState,
+    port: process.env.PORT,
+    nodeVersion: process.version
+  };
+  
+  console.log('🏥 Health check solicitado:', healthCheck);
+  res.status(200).json(healthCheck);
 });
 
 // Ruta para recibir las respuestas
 app.post('/api/respuestas', async (req, res) => {
   try {
-    console.log('📝 Nueva encuesta recibida:', req.body.nombre);
+    console.log('📝 Nueva encuesta recibida - Iniciando proceso...');
+    console.log('📋 Datos recibidos:', JSON.stringify(req.body, null, 2));
     
     // Validación básica
     if (!req.body.nombre || !req.body.puesto) {
+      console.log('❌ Validación fallida: falta nombre o puesto');
       return res.status(400).json({ 
         error: 'Nombre y puesto son campos obligatorios' 
       });
     }
 
+    console.log('✅ Validación básica pasada, creando nueva respuesta...');
     const nuevaRespuesta = new Respuesta(req.body);
+    console.log('✅ Objeto Respuesta creado, guardando en BD...');
+    
     await nuevaRespuesta.save();
     
-    console.log('✅ Encuesta guardada exitosamente');
+    console.log('✅ Encuesta guardada exitosamente con ID:', nuevaRespuesta._id);
     res.status(201).json({ 
       mensaje: 'Respuesta guardada correctamente',
       id: nuevaRespuesta._id
     });
   } catch (err) {
-    console.error('❌ Error al guardar la respuesta:', err);
+    console.error('❌ Error detallado al guardar la respuesta:');
+    console.error('❌ Error message:', err.message);
+    console.error('❌ Error name:', err.name);
+    console.error('❌ Error stack:', err.stack);
+    
+    if (err.name === 'ValidationError') {
+      console.error('❌ Errores de validación:', err.errors);
+      return res.status(400).json({
+        error: 'Error de validación',
+        details: Object.keys(err.errors).map(key => ({
+          field: key,
+          message: err.errors[key].message
+        }))
+      });
+    }
+    
     res.status(500).json({ 
       error: 'Error al guardar la respuesta', 
-      details: process.env.NODE_ENV === 'development' ? err.message : 'Error interno del servidor'
+      details: err.message,
+      errorName: err.name
     });
   }
 });
@@ -271,10 +330,50 @@ app.delete('/api/respuestas', async (req, res) => {
   }
 });
 
-// Ruta para servir la aplicación React en producción
+// Ruta para servir la aplicación React en producción (solo si existe)
 if (process.env.NODE_ENV === 'production') {
   app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../build', 'index.html'));
+    const buildPath = path.join(__dirname, '../../build', 'index.html');
+    const publicPath = path.join(__dirname, '../../public', 'index.html');
+    
+    // Verificar si existe el archivo HTML
+    try {
+      if (require('fs').existsSync(buildPath)) {
+        res.sendFile(buildPath);
+      } else if (require('fs').existsSync(publicPath)) {
+        res.sendFile(publicPath);
+      } else {
+        // Si no existe frontend, devolver mensaje de API
+        res.status(200).json({
+          message: '🚀 API funcionando correctamente',
+          note: 'Esta es una API backend. Frontend no configurado.',
+          availableEndpoints: [
+            'GET /api/health',
+            'GET /api/respuestas', 
+            'POST /api/respuestas',
+            'POST /api/login',
+            'POST /api/register'
+          ]
+        });
+      }
+    } catch (err) {
+      console.error('Error al servir archivo HTML:', err);
+      res.status(500).json({ error: 'Error al servir la aplicación' });
+    }
+  });
+} else {
+  // En desarrollo, solo mostrar info de API
+  app.get('*', (req, res) => {
+    res.status(200).json({
+      message: '🚀 API en modo desarrollo',
+      availableEndpoints: [
+        'GET /api/health',
+        'GET /api/respuestas', 
+        'POST /api/respuestas',
+        'POST /api/login',
+        'POST /api/register'
+      ]
+    });
   });
 }
 
@@ -286,12 +385,19 @@ app.use('/api/*', (req, res) => {
   });
 });
 
-// Manejo global de errores
+// Manejo global de errores (con logging detallado para debugging)
 app.use((err, req, res, next) => {
   console.error('💥 Error no manejado:', err);
+  console.error('💥 Stack trace:', err.stack);
+  console.error('💥 Request URL:', req.originalUrl);
+  console.error('💥 Request Method:', req.method);
+  console.error('💥 Request Body:', req.body);
+  
   res.status(500).json({ 
     error: 'Error interno del servidor',
-    details: process.env.NODE_ENV === 'development' ? err.message : 'Error interno'
+    details: err.message, // Temporalmente mostrar siempre el error para debugging
+    timestamp: new Date().toISOString(),
+    path: req.originalUrl
   });
 });
 
